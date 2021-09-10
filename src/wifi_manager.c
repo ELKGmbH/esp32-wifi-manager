@@ -141,6 +141,9 @@ const int WIFI_MANAGER_SCAN_BIT = BIT7;
 /* @brief When set, means user requested for a disconnect */
 const int WIFI_MANAGER_REQUEST_DISCONNECT_BIT = BIT8;
 
+/* @brief When set, do not start a scan */
+const int WIFI_MANAGER_REQUEST_ORDER_CONNECT_STA_BIT = BIT9;
+
 
 
 void wifi_manager_timer_retry_cb( TimerHandle_t xTimer ){
@@ -1014,10 +1017,25 @@ void wifi_manager( void * pvParameters ){
 				ESP_LOGD(TAG, "MESSAGE: ORDER_START_WIFI_SCAN");
 
 				/* if a scan is already in progress this message is simply ignored thanks to the WIFI_MANAGER_SCAN_BIT uxBit */
+				/* fix esp32-wifi-manager #110
 				uxBits = xEventGroupGetBits(wifi_manager_event_group);
 				if(! (uxBits & WIFI_MANAGER_SCAN_BIT) ){
 					xEventGroupSetBits(wifi_manager_event_group, WIFI_MANAGER_SCAN_BIT);
 					ESP_ERROR_CHECK(esp_wifi_scan_start(&scan_config, false));
+				}
+				*/
+				uxBits = xEventGroupGetBits(wifi_manager_event_group);
+				// If WIFI_MANAGER_REQUEST_ORDER_CONNECT_STA_BIT is SET, do NOT start scanning function as this will cause problems connecting to the external AP
+				if(!(uxBits & WIFI_MANAGER_REQUEST_ORDER_CONNECT_STA_BIT))
+				{
+					// if a scan is already in progress this message is ignored thanks to the WIFI_MANAGER_SCAN_BIT uxBit
+					if(!(uxBits & WIFI_MANAGER_SCAN_BIT))
+					{
+						xEventGroupSetBits(wifi_manager_event_group, WIFI_MANAGER_SCAN_BIT);
+						// Including esp_wifi_disconnect as per Espressif recommendation (solves another scanning issue)
+						ESP_ERROR_CHECK(esp_wifi_disconnect());
+						ESP_ERROR_CHECK(esp_wifi_scan_start(&scan_config, true));
+					}
 				}
 
 				/* callback */
@@ -1139,6 +1157,8 @@ void wifi_manager( void * pvParameters ){
 				}
 
 				uxBits = xEventGroupGetBits(wifi_manager_event_group);
+				
+				xEventGroupClearBits(wifi_manager_event_group, WIFI_MANAGER_REQUEST_ORDER_CONNECT_STA_BIT);
 				if( uxBits & WIFI_MANAGER_REQUEST_STA_CONNECT_BIT ){
 					/* there are no retries when it's a user requested connection by design. This avoids a user hanging too much
 					 * in case they typed a wrong password for instance. Here we simply clear the request bit and move on */
